@@ -1,0 +1,30 @@
+{                                                                                                        
+  "include": [ 
+    "src" 
+  ],
+  "compilerOptions": { 
+    "rootDir": "src",
+    "outDir": "dist",
+
+    "target": "esnext",                                                                                  
+    "module": "esnext",                                                                                  
+    "allowJs": true,
+    "allowSyntheticDefaultImports": true,                                                                
+    "stripInternal": true,                                                                               
+    "importHelpers": true,                                                                               
+    "alwaysStrict": true,                                                                                
+    "strict": true,                                                                                      
+    "noUncheckedIndexedAccess": true,                                                                    
+    "noUnusedLocals": false,                                                                             
+    "noUnusedParameters": false,                                                                         
+    "noImplicitThis": true,                                                                              
+    "noImplicitAny": true,                                                                               
+    "noImplicitOverride": true,                                                                          
+    "noImplicitReturns": true,                                                                           
+    "sourceMap": true,                                                                                   
+    "declaration": true,                                                                                 
+    "forceConsistentCasingInFileNames": true,                                                            
+    "moduleResolution": "node",                                                                          
+    "resolveJsonModule": true                                                                            
+  }                                                                                                      
+}   
