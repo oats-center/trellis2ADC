@@ -2,7 +2,7 @@ import { exec } from 'child_process';
 import debug from 'debug';
 import { Page } from 'puppeteer';
 
-const info = debug('scrape-adc/util:info')
+const info = debug('trellis2ADC/util:info')
 
 export async function cleanupScreenshots() {
   info('Cleaning up old screenshots')

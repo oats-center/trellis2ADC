@@ -1,8 +1,19 @@
 import debug from 'debug';
+import pLimit from 'p-limit';
 import { cleanupScreenshots, delay } from './util.js';
-import { connect as connectADC, upsertDataAsFile } from './adc.js';
+import { connect as connectADC, isRemoteFileStale, upsertDataAsFile } from './adc.js';
+import { connect as connectOADA } from '@oada/client';
+import { ListWatch, AssumeState, ChangeType } from '@oada/list-lib';
+import tree from './tree.js';
+import dayjs from 'dayjs';
+import { json2csv } from 'json-2-csv';
+import type { Slim as ModusSlim } from '@modusjs/convert';
+import { assertSlim, slim } from '@modusjs/convert';
+import ono from 'ono';
 
-const info = debug('scrape-adc/index:info');
+const info = debug('trellis2ADC/index:info');
+const limitADC = pLimit(1); // only allow one ADC connection at a time
+const limitOADA = pLimit(5); // can do 5 oada things at a time
 
 //---------------------------------------------
 // Config
@@ -11,55 +22,173 @@ const config = {
   url: "https://web.agdatacoalition.org/login",
   username: process.env.ADC_USERNAME || '',
   password: process.env.ADC_PASSWORD || '',
+  oada_domain: process.env.OADA_DOMAIN || '',
+  oada_token: process.env.OADA_TOKEN || '',
 };
-if (!config.username) throw new Error('ERROR: you must have a username in ADC_USERNAME')
-if (!config.password) throw new Error('ERROR: you must have a password in ADC_PASSWORD')
+if (!config.username) throw ono('ERROR: you must have a username in ADC_USERNAME')
+if (!config.password) throw ono('ERROR: you must have a password in ADC_PASSWORD')
+if (!config.oada_domain) throw ono('ERROR: you must have a oada_domain in OADA_DOMAIN')
+if (!config.oada_token) throw ono('ERROR: you must have a oada_token in OADA_TOKEN')
+info('Config = ', config, 'DEBUG = ', process.env.DEBUG)
 
+//------------------------- 
+// Connect to ADC
+//------------------------- 
 await cleanupScreenshots();
 const iframe = await connectADC(config);
+// ADC does not allow hyphens in any folder or filenames
+function noHyphensForADC(str: string) { return str.replace(/-/g,'_'); }
 
-const dummydata = {
-	"data": {
-		"2023-07-19T16:41:11.922Z-a84041d08187bc85": {
-			"time": "2023-07-19T16:41:11.922Z",
-			"deviceid": "a84041d08187bc85",
-			"depth": {
-				"value": 100,
-				"units": "cm"
-			},
-			"temperature": {
-				"value": 26,
-				"units": "C"
-			}
-		},
-		"2023-07-19T15:15:10.195Z-a84041963187bc95": {
-			"time": "2023-07-19T15:15:10.195Z",
-			"deviceid": "a84041963187bc95",
-			"depth": {
-				"value": 2,
-				"units": "cm"
-			},
-			"temperature": {
-				"value": 21.65,
-				"units": "C"
-			}
-		},
-  }
-};
+//------------------------------------ 
+// Connect to OADA
+//------------------------------------ 
+const oada = await connectOADA({ domain: config.oada_domain, token: config.oada_token });
 
+//------------------------------------ 
+// Setup watches
+//------------------------------------ 
 
-await upsertDataAsFile({ 
-  path: 'iot4ag/soil/temperature/2023-07-19.txt',
-  data: JSON.stringify(dummydata),
-  iframe,
+const watches: { [name: string]: ListWatch } = {};
+
+await startListWatch({
+  oadaPath: '/bookmarks/iot4ag/soil/water-content', 
+  itemsPath: '$.day-index.*',
+});
+await startListWatch({ 
+  oadaPath: '/bookmarks/iot4ag/soil/temperature', 
+  itemsPath: '$.day-index.*',
+});
+await startListWatch({ 
+  oadaPath: '/bookmarks/iot4ag/soil/conductivity', 
+  itemsPath: '$.day-index.*',
 });
 
+await startListWatch({ 
+  oadaPath: '/bookmarks/lab-results/soil', 
+  itemsPath: '$.event-date-index.*', // ignoring the md5-index: we'll grab all of them on that day and make one csv
+});
 
-info('Exiting in 5 minutes')
-await delay(1000 * 60 * 5)
+async function resetListWatch({ oadaPath }: { oadaPath: string }) {
+  info('resetListWatch: RESETTING LIST WATCH FOR ', oadaPath);
+  const path = oadaPath + '/_meta/oada-list-lib';
+  info('resetListWatch: Checking head...')
+  await oada.head({ path }).catch((_e: any) => { return; }) // not found, no list here
+  info('resetListWatch: _meta/oada-list-lib exists, deleting...');
+  await oada.delete({ path });
+  info('resetListWatch: _meta/oada-list-lib deleted');
+}
+async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPath: string }) {
+  const isModus = !!oadaPath.match('lab-results');
+  info('Disabled resertListWatch for production run')
+  // await resetListWatch({ oadaPath });
 
-info('Closing page');
-await iframe.page().browser().close();
+  // Ensure main listwatch path exists
+  await oada.head({ path: oadaPath }).catch(async (e: any) => { 
+    if (e && typeof e === 'object' && typeof e.code === 'string') {
+      // path does not exist, go ahead and tree put before starting list watch 
+      info('Path '+oadaPath+' did not exist, creating')
+      await oada.put({path: oadaPath, tree, data: {} });
+    }
+  });
+  const name = oadaPath.split('/').slice(-1)[0]!; // water-content, temperature, conductivity, lab-results
+  let adcBasePath = noHyphensForADC(oadaPath.replace(/^\/bookmarks/, 'trellis'));
+  watches[name] = new ListWatch({
+    conn: oada,
+    path: oadaPath,
+    name: 'trellis2ADC', // assumes only one listwatcher instance ever running per list
+    itemsPath,
+    tree,
+    resume: true,
+    onNewList: AssumeState.New,
+  });
+  const handle = async ({ item, pointer }: { item: Promise<any>, pointer: string }) => {
+    item = await item;
+    info('Item handler triggered, pointer = ', pointer);
+    let day = pointer.replace(/^.*\/day-index\//,'');
+    if (isModus) {
+      day = pointer.replace(/^.*\/event-date-index\//,'');
+    }
+    // pointer = /day-index/2024-02-10
+    const path = noHyphensForADC(`${adcBasePath}/${day}.csv`);
+    item = await item;
+    // Grab the last modified from OADA for this item:
+    let modifiedOADA = await limitOADA(() => 
+      oada.get({ path: oadaPath + pointer + '/_meta/modified'})
+      .then(r=>r.data).catch((_e:any) => 0)
+    ); // unix timstamp in ms
+    const lastModified = dayjs.unix(+(modifiedOADA || 0));
+    if (!lastModified.isValid()) throw ono('Last modified ('+lastModified+') is not valid on OADA item at path '+oadaPath+pointer)
+    if (typeof item !== 'object') throw ono('ERROR: item was not an object for pointer '+pointer);
+    let data: any = null;
+    //------------------------------
+    // normal iot4ag data:
+    if ('data' in item && typeof item.data === 'object') {
+      // iot4ag data:
+      data = json2csv(Object.values(item.data as object));
+
+    //------------------------------
+    // modus lab data
+    } else if ('md5-index' in item && typeof item['md5-index'] === 'object') {
+      // lab-results data: grab all the md5's for this day from oada,
+      // use convert lib to squash them all together, then output a csv
+      const rs = await isRemoteFileStale({ path, iframe });
+      if (!rs.isStale) {
+        info('Lab result '+path+' is up to date in ADC.  Avoiding unnecessary retrieval of all results for that day.');
+        return;
+      }
+      info('Lab result '+path+' is stale.  Grabbing all md5-index\'s for that day: ', item);
+      const allresults: ModusSlim[] = await Promise.all(Object.keys(item['md5-index']!).map(async (key) => {
+        try {
+          const result = await limitOADA(() => oada.get({path: oadaPath + pointer + '/md5-index/' + key}).then(r => r.data));
+          assertSlim(result);
+          return result;
+        } catch(e: any) {
+          info('Error stringified = ', JSON.stringify(e,null,'  '))
+          throw ono(e, 'ERROR: failed to get md5-index at path '+oadaPath + pointer + '/md5-index/' + key);
+        }
+      }));
+      data = slim.toCsv(allresults).str;
+ 
+    } else {
+      throw ono('item for pointer '+pointer+' had neither data (iot4ag) nor md5-index (lab-results)')
+    }
+    await limitADC(async () => {
+      info('Starting upload to ADC for path: '+path)
+      await upsertDataAsFile({
+        path,
+        data,
+        iframe,
+        lastModified,
+      });
+      info('Finished uploading to ADC: '+path+'.');
+    });
+  };
+  watches[name]!.on(ChangeType.ItemAdded, handle);
+  watches[name]!.on(ChangeType.ItemChanged, handle);
+  info('ListWatcher started for list ', oadaPath)
+}
+
+info('Finished setting up ListWatch\'ers, waiting 1 minute before checking limit queue');
+await delay(60000); // wait for 30 seconds before checking the queue to make sure there was enough startup time to start filling it
+await new Promise<void>(async (resolve) => {
+  async function resolveWhenQueueDone() {
+    info('Checking if ADC queue is empty')
+    const count = limitADC.pendingCount + limitADC.activeCount;
+    if (count === 0) {
+      info('ADC queue is empty, exiting in 5 minutes')
+      info('Exiting in 5 minutes')
+      await delay(1000 * 60 * 5)
+      info('Closing page');
+      await iframe.page().browser().close();
+      return resolve();
+    }
+    info('ADC Queue has '+count+' items in it.  Will check again in '+(5000*count)+' ms');
+    setTimeout(resolveWhenQueueDone, 5000 * count);
+    return;
+  }
+  await resolveWhenQueueDone();
+});
+
 
 info('Done');
 
