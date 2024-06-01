@@ -367,7 +367,7 @@ export async function ensureFreshConnection() {
 let connectionConfig: { url: string, username: string, password: string, iframe: Frame, startTime: Dayjs } | null = null;
 export async function connect({url,username,password}: { url: string, username: string, password: string }):Promise<Frame> {
   info('Launching puppeteer to ', url);
-  const browser = await puppeteer.launch({ headless: false, devtools: false }); // headless: false will show the webpage
+  const browser = await puppeteer.launch({ headless: !process.env.SHOW_BROWSER || false, devtools: false }); // headless: false will show the webpage
   const page = await browser.newPage();
   page.setBypassCSP(true);
 
