@@ -1,8 +1,10 @@
 services:
 
   trellis2adc:
-    image: node:21-alpine
+    image: ghcr.io/puppeteer/puppeteer
     restart: 'unless-stopped'
+    cap_add:
+      - SYS_ADMIN
     volumes: 
       - .:/code
     working_dir: /code
