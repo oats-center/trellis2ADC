@@ -364,8 +364,9 @@ export async function ensureFreshConnection() {
   await connect(connectionConfig);
   info('Connection refreshed.');
 }
-let connectionConfig: { url: string, username: string, password: string, iframe: Frame, startTime: Dayjs } | null = null;
-export async function connect({url,username,password}: { url: string, username: string, password: string }):Promise<Frame> {
+type ConnectionConfig = { url: string, username: string, password: string, iframe: Frame, startTime: Dayjs };
+let connectionConfig: ConnectionConfig | null = null;
+export async function connect({url,username,password}: { url: string, username: string, password: string }):Promise<ConnectionConfig> {
   info('Launching puppeteer to ', url);
   const browser = await puppeteer.launch({ devtools: false }); // headless: false will show the webpage, but you ned to remove the headless key entirely if not showing browser
   const page = await browser.newPage();
@@ -419,7 +420,7 @@ export async function connect({url,username,password}: { url: string, username: 
   //--------------------------------------------------- 
   // Main drag-and-drop data table
   await page.waitForSelector('#onsite-iframe');
-  const frameobj = await page.waitForFrame(frame => {
+  const _frameobj = await page.waitForFrame(frame => {
     info('frame = ', frame.name(), 'isOOPFrame = ', frame.isOOPFrame())
     return frame.name() === 'onsite-iframe';
   })
@@ -432,7 +433,16 @@ export async function connect({url,username,password}: { url: string, username: 
   const tree = await iframe.waitForSelector('#tree');
   if (!tree) throw new Error('Did not find tree in iframe')
 
-  connectionConfig = { url, username, password, iframe, startTime: dayjs() };
+  // I had to do this here so that iframe doesn't have to be null sometimes
+  if (!connectionConfig) {
+    connectionConfig = { url: '', username: '', password: '', iframe: iframe, startTime: dayjs() };
+  }
+  // Don't just set connectionConfig to a new object because it can be kept outside, so we need reference to stay the same
+  connectionConfig.url = url;
+  connectionConfig.username = username;
+  connectionConfig.password = password;
+  connectionConfig.iframe = iframe;
+  connectionConfig.startTime = dayjs();
   info('Have tree, connect is finished');
-  return iframe;
+  return connectionConfig;
 }

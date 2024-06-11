@@ -35,7 +35,7 @@ info('Config = ', config, 'DEBUG = ', process.env.DEBUG)
 // Connect to ADC
 //------------------------- 
 await cleanupScreenshots();
-const iframe = await connectADC(config);
+const connectionConfig = await connectADC(config);
 // ADC does not allow hyphens in any folder or filenames
 function noHyphensForADC(str: string) { return str.replace(/-/g,'_'); }
 
@@ -131,7 +131,7 @@ async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPa
     } else if ('md5-index' in item && typeof item['md5-index'] === 'object') {
       // lab-results data: grab all the md5's for this day from oada,
       // use convert lib to squash them all together, then output a csv
-      const rs = await isRemoteFileStale({ path, iframe });
+      const rs = await isRemoteFileStale({ path, iframe: connectionConfig.iframe });
       if (!rs.isStale) {
         info('Lab result '+path+' is up to date in ADC.  Avoiding unnecessary retrieval of all results for that day.');
         return;
@@ -157,7 +157,7 @@ async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPa
       await upsertDataAsFile({
         path,
         data,
-        iframe,
+        iframe: connectionConfig.iframe,
         lastModified,
       });
       info('Finished uploading to ADC: '+path+'.');
