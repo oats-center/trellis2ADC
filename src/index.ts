@@ -175,12 +175,13 @@ await new Promise<void>(async (resolve) => {
     info('Checking if ADC queue is empty')
     const count = limitADC.pendingCount + limitADC.activeCount;
     if (count === 0) {
-      info('ADC queue is empty, exiting in 5 minutes')
-      info('Exiting in 5 minutes')
+      info('ADC queue is empty, checking queue status again in 5 minutes')
+      // info('Exiting in 5 minutes')
       await delay(1000 * 60 * 5)
-      info('Closing page');
-      await iframe.page().browser().close();
-      return resolve();
+      info('Checking queue status');
+      // await iframe.page().browser().close();
+      // Now that we're in production, never resolv this promise.
+      // return resolve();
     }
     info('ADC Queue has '+count+' items in it.  Will check again in '+(5000*count)+' ms');
     setTimeout(resolveWhenQueueDone, 5000 * count);
