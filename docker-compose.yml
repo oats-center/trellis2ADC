@@ -1,11 +1,12 @@
 services:
 
   trellis2adc:
-    image: ghcr.io/puppeteer/puppeteer
+    build: .
     restart: 'unless-stopped'
     cap_add:
       - SYS_ADMIN
     volumes: 
       - .:/code
     working_dir: /code
+    user: pptruser
     command: /code/entrypoint.sh
