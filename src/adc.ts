@@ -10,7 +10,7 @@ const info = debug('trellis2ADC/adc:info');
 // If lastModified is passed, then the remote file as ADC 
 // is only removed and re-uploaded if the remote lastModified is older than the one passed.
 export async function upsertDataAsFile({path, data, lastModified, iframe}: {path: string, data: string, iframe: Frame, lastModified?: Dayjs}):Promise<void> {
-  await ensureFreshConnection();
+  ({ iframe } = await ensureFreshConnection());
   let { dir, filename, folderTitleSpan, fileTitleSpan, isStale, adcLastModified } = await isRemoteFileStale({ path, lastModified, iframe });
   if (filename.match('-')) throw new Error('ERROR: you forgot that ADC will not allow filenames with hyphens in them');
   if (folderTitleSpan && fileTitleSpan) { // File exists.
@@ -78,7 +78,7 @@ export async function isRemoteFileStale(
 }
 
 export async function findADCLastModified({ titleSpan, iframe }: { titleSpan: ElementHandle, iframe: Frame }): Promise<Dayjs> {
-  await ensureFreshConnection();
+  ({ iframe } = await ensureFreshConnection());
   const modifiedStr = await iframe.evaluate(el => {
     const rowTr = el.parentElement?.parentElement?.parentElement;
     if (!rowTr) throw new Error('ERROR: could not find row TR for title span');
@@ -95,7 +95,7 @@ export async function findADCLastModified({ titleSpan, iframe }: { titleSpan: El
 // Note: do NOT pass a filename as the end of the path.  It does not have an expander,
 // so it will not work.
 export async function ensurePathOpen({ path, iframe}: { path: string, iframe: Frame }): Promise<ElementHandle> {
-  await ensureFreshConnection();
+  ({iframe} = await ensureFreshConnection());
   info('ensurePathOpen: opening path '+path);
   path = path.replace(/^\//,''); // no leading slash
   const dir = path.split('/');
@@ -118,15 +118,15 @@ export async function ensurePathOpen({ path, iframe}: { path: string, iframe: Fr
 }
 
 export async function rowForTitle({title, iframe}: {title: string, iframe: Frame}): Promise<ElementHandle> {
-  await ensureFreshConnection();
+  ({iframe} = await ensureFreshConnection());
   const row = await iframe.waitForSelector('span[title="'+title+'"]');
   if (!row) throw new Error('Row for title '+title+' did not exist.');
   return row;
 }
 
 async function expanderForRow({row, iframe}: {row: ElementHandle, iframe: Frame}): Promise<ElementHandle> {
-  await ensureFreshConnection();
- const expanderHandle = await iframe.evaluateHandle(el => {
+  ({iframe} = await ensureFreshConnection());
+  const expanderHandle = await iframe.evaluateHandle(el => {
     const expander = el.parentElement?.querySelector('span.fancytree-expander');
     if (!expander) throw new Error('Could not find expander for this row'); // throws in the browser
     return expander;
@@ -136,8 +136,8 @@ async function expanderForRow({row, iframe}: {row: ElementHandle, iframe: Frame}
 };
 
 async function iconForRow({row, iframe}: {row: ElementHandle, iframe: Frame}): Promise<ElementHandle> {
-  await ensureFreshConnection();
- const iconHandle = await iframe.evaluateHandle(el => {
+  ({iframe} = await ensureFreshConnection());
+  const iconHandle = await iframe.evaluateHandle(el => {
     const icon = el.parentElement?.querySelector('span.fancytree-icon');
     if (!icon) throw new Error('Could not find icon for this row'); // throws in the browser
     return icon;
@@ -151,7 +151,7 @@ async function iconForRow({row, iframe}: {row: ElementHandle, iframe: Frame}): P
 // single image of sprites which specifies the right arrow or down arrow.
 type RowStatusType = 'closed-folder' | 'open-folder' | 'file';
 export async function rowStatusType({ row, iframe }: { row: ElementHandle, iframe: Frame }): Promise<RowStatusType> {
-  await ensureFreshConnection();
+  ({iframe} = await ensureFreshConnection());
   // Grab the title to help with debugging messages:
   const title = await iframe.evaluate(el => el.getAttribute('title'), row);
   if (!title) throw new Error('ERROR: row passed to isSingleRowOpen does not have a title!');
@@ -168,7 +168,7 @@ export async function rowStatusType({ row, iframe }: { row: ElementHandle, ifram
 
 // Note: this does not check if the row is open first: use isSingleRowOpen for that.
 export async function openRow({row, iframe}: { row: ElementHandle, iframe: Frame}):Promise<void> {
-  await ensureFreshConnection();
+  ({iframe} = await ensureFreshConnection());
   // NOTE: if the row is a folder, but there is nothing in the folder, it will show an expander
   // while closed, but once open there will be no expander until at least one item is in the folder.
   // Grab the title to help with debugging messages:
@@ -188,7 +188,7 @@ export async function openRow({row, iframe}: { row: ElementHandle, iframe: Frame
 
 
 export async function ensureRowSelected({ titleSpan, iframe }: { titleSpan: ElementHandle, iframe: Frame }): Promise<void> {
-  await ensureFreshConnection();
+  ({iframe} = await ensureFreshConnection());
   const title = await iframe.evaluate(el => el.getAttribute('title'), titleSpan);
   // click the title twice to get it back to the same state and make sure it's in views
   info('Clicking titleSpan twice for row with title '+title+' to make sure it is in view and valid (throws if node is no longer in DOM)')
@@ -220,7 +220,7 @@ export async function ensureRowSelected({ titleSpan, iframe }: { titleSpan: Elem
 // are inside the folder, until you reach a row that has a larger width.  Those rows in the folder
 // then whose row type is 'file' are the ones we can check for the filename.
 export async function findFileInOpenFolder({ folder, filename, iframe }: { folder: ElementHandle, filename: string, iframe: Frame }): Promise<ElementHandle | null> {
-  await ensureFreshConnection();
+  ({iframe} = await ensureFreshConnection());
   const title = await iframe.evaluate(el => el.getAttribute('title'), folder);
   info('Looking for contents of open folder '+title+' to check if the filename '+filename+' exists');
   const result = await iframe.evaluateHandle((folderTitleSpan, filename) => {
@@ -290,7 +290,7 @@ export async function findFileInOpenFolder({ folder, filename, iframe }: { folde
 
 
 export async function deleteFile({ titleSpan, iframe }: { titleSpan: ElementHandle, iframe: Frame }) {
-  await ensureFreshConnection();
+  ({iframe} = await ensureFreshConnection());
   await ensureRowSelected({ titleSpan, iframe });
   const deleteButton = await iframe.waitForSelector('a.delete-button');
   if (!deleteButton) throw new Error('Did not find delete button in iframe');
@@ -311,7 +311,7 @@ export async function deleteFile({ titleSpan, iframe }: { titleSpan: ElementHand
 
 
 export async function uploadFile({ folderTitleSpan, filename, data, iframe }: { folderTitleSpan: ElementHandle, filename: string, data: string, iframe: Frame }) {
-  await ensureFreshConnection();
+  ({iframe} = await ensureFreshConnection());
   info('Uploading file '+filename);
   await ensureRowSelected({ titleSpan: folderTitleSpan, iframe });
   info('Now clicking the import button to open the modal')
@@ -356,13 +356,14 @@ export async function uploadFile({ folderTitleSpan, filename, data, iframe }: { 
 // log you out after some time.  We have to make a means for the browser to reset itself every 15 minutes
 // or so.  I chose a singleton to do that, and since each function above is reasonably quick to run, they just
 // all ensure the connection has been refreshed in the last 15 minutes.
-export async function ensureFreshConnection() {
+export async function ensureFreshConnection(): Promise<ConnectionConfig> {
   if (!connectionConfig) throw new Error('ERROR: connectionConfig not defined, cannot ensure fresh connection');
-  if (dayjs().diff(connectionConfig.startTime, 'minutes') < 15) return;
+  if (dayjs().diff(connectionConfig.startTime, 'minutes') < 15) return connectionConfig;
   info('Connection is more than 15 minutes old, resetting connection');
   await connectionConfig.iframe.page().browser().close();
   await connect(connectionConfig);
   info('Connection refreshed.');
+  return connectionConfig;
 }
 type ConnectionConfig = { url: string, username: string, password: string, iframe: Frame, startTime: Dayjs };
 let connectionConfig: ConnectionConfig | null = null;
