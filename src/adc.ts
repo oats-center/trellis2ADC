@@ -369,7 +369,7 @@ type ConnectionConfig = { url: string, username: string, password: string, ifram
 let connectionConfig: ConnectionConfig | null = null;
 export async function connect({url,username,password}: { url: string, username: string, password: string }):Promise<ConnectionConfig> {
   info('Launching puppeteer to ', url);
-  const browser = await puppeteer.launch({ devtools: false }); // headless: false will show the webpage, but you ned to remove the headless key entirely if not showing browser
+  const browser = await puppeteer.launch({ headless: "new", devtools: false,  }); // headless: false will show the webpage, but you ned to remove the headless key entirely if not showing browser
   const page = await browser.newPage();
   page.setBypassCSP(true);
 
@@ -402,8 +402,12 @@ export async function connect({url,username,password}: { url: string, username: 
   //-------------------------------------------------- 
   // Dashboard page (or loading screen)
   // Ensuring we are logged in:
+  info('Delaying 5000 to get a screenshot of page before waiting on #display-username');
+  await delay(5000);
+  await screenshot(page);
   const usernameSelector = '#display-username';
-  info('Waiting for #display-username')
+  info('Waiting for #display-username');
+
   const usernameElement = await page.waitForSelector(usernameSelector, { visible: true, timeout: 60000 });
 
   const pageUsername = await page.evaluate(el => el?.textContent, usernameElement);

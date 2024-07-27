@@ -10,3 +10,10 @@ services:
     working_dir: /code
     user: pptruser
     command: /code/entrypoint.sh
+    environment:
+      - ADC_USERNAME=${ADC_USERNAME}
+      - ADC_PASSWORD=${ADC_PASSWORD}
+      - OADA_DOMAIN=${OADA_DOMAIN}
+      - OADA_TOKEN=${OADA_TOKEN}
+      - SHOW_BROWSER=${SHOW_BROWSER:-false}
+      - DEBUG=${DEBUG}
