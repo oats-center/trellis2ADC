@@ -112,10 +112,25 @@ async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPa
     const path = noHyphensForADC(`${adcBasePath}/${day}.csv`);
     item = await item;
     // Grab the last modified from OADA for this item:
-    let modifiedOADA = await limitOADA(() => 
-      oada.get({ path: oadaPath + pointer + '/_meta/modified'})
+    let resourceMeta = await limitOADA(() => 
+      oada.get({ path: oadaPath + pointer + '/_meta'})
       .then(r=>r.data).catch((_e:any) => 0)
     ); // unix timstamp in ms
+    const modifiedOADA = resourceMeta?.['modified'] || 0;
+    //-----------------------------
+    // #### How to refresh your OADA and avoid putting a million files to ADC:
+    // If you refresh your OADA from PG, you can tell it to not sync new files to ADC if the
+    // file already exists in ADC by setting the lastrev_syncoverride to the current rev.  If
+    // the current rev on the resource is less than or equal to the lastrev_syncoverride, then
+    // if the file exists already in ADC it will not sync it.  If it does not exist already, then
+    // it will fall back to the normal sync logic checking the last modified time on the resource
+    // against the last modified time on the file in ADC.
+    //
+    // There is a script in src/scripts (use the dist/ compiled version) that will set lastrevs on a 
+    // bunch of dayindex files.
+    //-----------------------------
+    const lastRevSyncOverride = +(resourceMeta?.['lastrev_syncoverride'] || 0);
+    const currentRev = +(resourceMeta?.['_rev'] || 0);
     const lastModified = dayjs.unix(+(modifiedOADA || 0));
     if (!lastModified.isValid()) throw ono('Last modified ('+lastModified+') is not valid on OADA item at path '+oadaPath+pointer)
     if (typeof item !== 'object') throw ono('ERROR: item was not an object for pointer '+pointer);
@@ -131,7 +146,8 @@ async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPa
     } else if ('md5-index' in item && typeof item['md5-index'] === 'object') {
       // lab-results data: grab all the md5's for this day from oada,
       // use convert lib to squash them all together, then output a csv
-      const rs = await isRemoteFileStale({ path, iframe: connectionConfig.iframe });
+      // Why did I not previously pass lastModified to this function?
+      const rs = await isRemoteFileStale({ path, iframe: connectionConfig.iframe, lastModified });
       if (!rs.isStale) {
         info('Lab result '+path+' is up to date in ADC.  Avoiding unnecessary retrieval of all results for that day.');
         return;
@@ -159,6 +175,8 @@ async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPa
         data,
         iframe: connectionConfig.iframe,
         lastModified,
+        lastRevSyncOverride,
+        currentRev
       });
       info('Finished uploading to ADC: '+path+'.');
     });

@@ -9,9 +9,9 @@ const info = debug('trellis2ADC/adc:info');
 // Upsert: delete file if it's already there, then upload
 // If lastModified is passed, then the remote file as ADC 
 // is only removed and re-uploaded if the remote lastModified is older than the one passed.
-export async function upsertDataAsFile({path, data, lastModified, iframe}: {path: string, data: string, iframe: Frame, lastModified?: Dayjs}):Promise<void> {
+export async function upsertDataAsFile({path, data, lastModified, lastRevSyncOverride, currentRev, iframe}: {path: string, data: string, iframe: Frame, lastModified?: Dayjs, lastRevSyncOverride?: number, currentRev?: number }):Promise<void> {
   ({ iframe } = await ensureFreshConnection());
-  let { dir, filename, folderTitleSpan, fileTitleSpan, isStale, adcLastModified } = await isRemoteFileStale({ path, lastModified, iframe });
+  let { dir, filename, folderTitleSpan, fileTitleSpan, isStale, adcLastModified } = await isRemoteFileStale({ path, lastModified, lastRevSyncOverride, currentRev, iframe });
   if (filename.match('-')) throw new Error('ERROR: you forgot that ADC will not allow filenames with hyphens in them');
   if (folderTitleSpan && fileTitleSpan) { // File exists.
     if (!isStale) {
@@ -41,10 +41,12 @@ type StaleResult = {
 }
 export async function isRemoteFileStale(
   { 
-    path, lastModified, iframe
+    path, lastModified, lastRevSyncOverride, currentRev, iframe
   } : { 
     path: string, 
     lastModified?: Dayjs, 
+    lastRevSyncOverride?: number,
+    currentRev?: number,
     iframe: Frame 
   }
 ): Promise<StaleResult> {
@@ -65,8 +67,14 @@ export async function isRemoteFileStale(
   if (!ret.folderTitleSpan) return ret;
   // If we have the folder, do we have the file?
   ret.fileTitleSpan = await findFileInOpenFolder({folder: ret.folderTitleSpan, filename: ret.filename, iframe}); // returns titleSpan
-  if (!ret.fileTitleSpan) return ret;
+  if (!ret.fileTitleSpan) return ret; // file does not exist, so it is stale and needs replaced
   if (!lastModified) return ret; // remote file is stale because we have no local lastModified to check
+  // Now we know file exists, now see if we have a rev override that allows a local oada to be refreshed without re-uploading files
+  if (lastRevSyncOverride && currentRev <= lastRevSyncOverride) {
+    info('Not syncing existing file because currentRev on resource is less than or equal to lastRevSyncOverride: '+currentRev+' <= '+lastRevSyncOverride);
+    return ret; // currentRev on resource is still same as the override, no need to re-upload
+  }
+  // Otherwise, go ahead and check the last modified times
   // Grab the last modified and check it:
   ret.adcLastModified = await findADCLastModified({ titleSpan: ret.fileTitleSpan, iframe });
   if (ret.adcLastModified?.isSame(lastModified) || ret.adcLastModified.isAfter(lastModified)) {
@@ -369,7 +377,9 @@ type ConnectionConfig = { url: string, username: string, password: string, ifram
 let connectionConfig: ConnectionConfig | null = null;
 export async function connect({url,username,password}: { url: string, username: string, password: string }):Promise<ConnectionConfig> {
   info('Launching puppeteer to ', url);
-  const browser = await puppeteer.launch({ headless: "new", devtools: false,  }); // headless: false will show the webpage, but you ned to remove the headless key entirely if not showing browser
+  let headless = 'new';
+  if (process.env.HEADLESS === 'false') headless = false;
+  const browser = await puppeteer.launch({ headless, devtools: false  });
   const page = await browser.newPage();
   page.setBypassCSP(true);
 
