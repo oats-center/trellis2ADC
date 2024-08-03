@@ -58,6 +58,7 @@ export async function isRemoteFileStale(
     adcLastModified: null, 
     isStale: true 
   };
+  currentRev = currentRev || 0;
   const parts = path.split('/');
   if (parts.length < 2) throw new Error('ERROR: isRemoteFileStale: path must have at least one folder and a filename');
   ret.filename = parts.slice(-1)[0]!;
@@ -72,7 +73,7 @@ export async function isRemoteFileStale(
   // Now we know file exists, now see if we have a rev override that allows a local oada to be refreshed without re-uploading files
   if (lastRevSyncOverride && currentRev <= lastRevSyncOverride) {
     info('Not syncing existing file because currentRev on resource is less than or equal to lastRevSyncOverride: '+currentRev+' <= '+lastRevSyncOverride);
-    return ret; // currentRev on resource is still same as the override, no need to re-upload
+    return { ...ret, isStale: false }; // currentRev on resource is still same as the override, no need to re-upload.  i.e. remote file is "not stale"
   }
   // Otherwise, go ahead and check the last modified times
   // Grab the last modified and check it:
@@ -377,7 +378,7 @@ type ConnectionConfig = { url: string, username: string, password: string, ifram
 let connectionConfig: ConnectionConfig | null = null;
 export async function connect({url,username,password}: { url: string, username: string, password: string }):Promise<ConnectionConfig> {
   info('Launching puppeteer to ', url);
-  let headless = 'new';
+  let headless: 'new' | boolean = 'new';
   if (process.env.HEADLESS === 'false') headless = false;
   const browser = await puppeteer.launch({ headless, devtools: false  });
   const page = await browser.newPage();

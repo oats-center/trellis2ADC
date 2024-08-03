@@ -1,10 +1,10 @@
 {
   "name": "trellis2ADC",
   "type": "module",
-  "packageManager": "yarn@4.1.1",
+  "packageManager": "yarn@4.4.0",
   "scripts": {
     "start": "env-cmd nodemon -w dist -w package.json dist/index.js",
-    "startop": "DEBUG=\"${DEBUG},-@oada/client:auto:error\" op run --env-file .env -- nodemon --inspect -w dist -w package.json dist/index.js",
+    "startop": "env-cmd op run --env-file .env -- nodemon --inspect -w dist -w package.json dist/index.js",
     "startprod": "env-cmd node dist/index.js",
     "build": "tsc -b",
     "build-types": "node dist/build/build-types.js",

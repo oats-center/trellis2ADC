@@ -79,8 +79,12 @@ async function resetListWatch({ oadaPath }: { oadaPath: string }) {
 }
 async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPath: string }) {
   const isModus = !!oadaPath.match('lab-results');
-  info('Disabled resertListWatch for production run')
-  // await resetListWatch({ oadaPath });
+  if (process.env.RESET_LIST_WATCHES) {
+    info('RESET_LOIST_WATCHES is set, resetting list watches for ', oadaPath);
+    await resetListWatch({ oadaPath });
+  } else {
+    info('Disabled resetListWatch for production run.  Set RESET_LIST_WATCHES=1 to enable.');
+  }
 
   // Ensure main listwatch path exists
   await oada.head({ path: oadaPath }).catch(async (e: any) => { 
@@ -112,11 +116,11 @@ async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPa
     const path = noHyphensForADC(`${adcBasePath}/${day}.csv`);
     item = await item;
     // Grab the last modified from OADA for this item:
-    let resourceMeta = await limitOADA(() => 
+    let resourceMeta: any = await limitOADA(() => 
       oada.get({ path: oadaPath + pointer + '/_meta'})
       .then(r=>r.data).catch((_e:any) => 0)
     ); // unix timstamp in ms
-    const modifiedOADA = resourceMeta?.['modified'] || 0;
+    const modifiedOADA = resourceMeta?.modified || 0;
     //-----------------------------
     // #### How to refresh your OADA and avoid putting a million files to ADC:
     // If you refresh your OADA from PG, you can tell it to not sync new files to ADC if the
@@ -129,8 +133,8 @@ async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPa
     // There is a script in src/scripts (use the dist/ compiled version) that will set lastrevs on a 
     // bunch of dayindex files.
     //-----------------------------
-    const lastRevSyncOverride = +(resourceMeta?.['lastrev_syncoverride'] || 0);
-    const currentRev = +(resourceMeta?.['_rev'] || 0);
+    const lastRevSyncOverride = +(resourceMeta?.lastrev_syncoverride || 0);
+    const currentRev = +(resourceMeta?._rev || 0);
     const lastModified = dayjs.unix(+(modifiedOADA || 0));
     if (!lastModified.isValid()) throw ono('Last modified ('+lastModified+') is not valid on OADA item at path '+oadaPath+pointer)
     if (typeof item !== 'object') throw ono('ERROR: item was not an object for pointer '+pointer);
