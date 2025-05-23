@@ -1,7 +1,6 @@
 import debug from 'debug';
 import pLimit from 'p-limit';
-import { cleanupScreenshots, delay } from './util.js';
-import { connect as connectADC, isRemoteFileStale, upsertDataAsFile } from './adc.js';
+import { connect as connectADC, findFileFromPath, isRemoteFileStale, upsertDataAsFile } from './adc-api.js';
 import { connect as connectOADA } from '@oada/client';
 import { ListWatch, AssumeState, ChangeType } from '@oada/list-lib';
 import tree from './tree.js';
@@ -10,6 +9,7 @@ import { json2csv } from 'json-2-csv';
 import type { Slim as ModusSlim } from '@modusjs/convert';
 import { assertSlim, slim } from '@modusjs/convert';
 import ono from 'ono';
+import { delay } from './util.js'
 
 const info = debug('trellis2ADC/index:info');
 const limitADC = pLimit(1); // only allow one ADC connection at a time
@@ -19,7 +19,7 @@ const limitOADA = pLimit(5); // can do 5 oada things at a time
 // Config
 //---------------------------------------------
 const config = {
-  url: "https://web.agdatacoalition.org/login",
+  url: "https://prodapi.agdatacoalition.org",
   username: process.env.ADC_USERNAME || '',
   password: process.env.ADC_PASSWORD || '',
   oada_domain: process.env.OADA_DOMAIN || '',
@@ -34,8 +34,7 @@ info('Config = ', config, 'DEBUG = ', process.env.DEBUG)
 //------------------------- 
 // Connect to ADC
 //------------------------- 
-await cleanupScreenshots();
-const connectionConfig = await connectADC(config);
+await connectADC(config);
 // ADC does not allow hyphens in any folder or filenames
 function noHyphensForADC(str: string) { return str.replace(/-/g,'_'); }
 
@@ -54,6 +53,7 @@ await startListWatch({
   oadaPath: '/bookmarks/iot4ag/soil/water-content', 
   itemsPath: '$.day-index.*',
 });
+/*
 await startListWatch({ 
   oadaPath: '/bookmarks/iot4ag/soil/temperature', 
   itemsPath: '$.day-index.*',
@@ -67,7 +67,7 @@ await startListWatch({
   oadaPath: '/bookmarks/lab-results/soil', 
   itemsPath: '$.event-date-index.*', // ignoring the md5-index: we'll grab all of them on that day and make one csv
 });
-
+*/
 async function resetListWatch({ oadaPath }: { oadaPath: string }) {
   info('resetListWatch: RESETTING LIST WATCH FOR ', oadaPath);
   const path = oadaPath + '/_meta/oada-list-lib';
@@ -80,7 +80,7 @@ async function resetListWatch({ oadaPath }: { oadaPath: string }) {
 async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPath: string }) {
   const isModus = !!oadaPath.match('lab-results');
   if (process.env.RESET_LIST_WATCHES) {
-    info('RESET_LOIST_WATCHES is set, resetting list watches for ', oadaPath);
+    info('RESET_LIST_WATCHES is set, resetting list watches for ', oadaPath);
     await resetListWatch({ oadaPath });
   } else {
     info('Disabled resetListWatch for production run.  Set RESET_LIST_WATCHES=1 to enable.');
@@ -151,7 +151,7 @@ async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPa
       // lab-results data: grab all the md5's for this day from oada,
       // use convert lib to squash them all together, then output a csv
       // Why did I not previously pass lastModified to this function?
-      const rs = await isRemoteFileStale({ path, iframe: connectionConfig.iframe, lastModified });
+      const rs = await isRemoteFileStale({ path, lastModified });
       if (!rs.isStale) {
         info('Lab result '+path+' is up to date in ADC.  Avoiding unnecessary retrieval of all results for that day.');
         return;
@@ -177,7 +177,6 @@ async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPa
       await upsertDataAsFile({
         path,
         data,
-        iframe: connectionConfig.iframe,
         lastModified,
         lastRevSyncOverride,
         currentRev
@@ -191,8 +190,8 @@ async function startListWatch({oadaPath, itemsPath}: { oadaPath: string, itemsPa
 }
 
 info('Finished setting up ListWatch\'ers, waiting 1 minute before checking limit queue');
-await delay(60000); // wait for 30 seconds before checking the queue to make sure there was enough startup time to start filling it
-await new Promise<void>(async (resolve) => {
+await delay(60000); // wait for 60 seconds before checking the queue to make sure there was enough startup time to start filling it
+await new Promise<void>(async (_resolve) => {
   async function resolveWhenQueueDone() {
     info('Checking if ADC queue is empty')
     const count = limitADC.pendingCount + limitADC.activeCount;

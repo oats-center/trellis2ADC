@@ -6,9 +6,9 @@ echo "Starting entrypoint"
 
 echo "-------- Running yarn"
 yarn
-echo "-------- Removing and re-adding puppeteer"
-yarn remove puppeteer
-yarn add puppeteer@21.7.0
+# echo "-------- Removing and re-adding puppeteer"
+# yarn remove puppeteer
+# yarn add puppeteer@21.7.0
 echo "-------- Running yarn build"
 yarn build
 echo "-------- Running yarn startprod"
