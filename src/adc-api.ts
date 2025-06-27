@@ -114,12 +114,13 @@ export async function findFileFromPath(
     const files = await fetchADCFilesInFolder(parentid);
     for (const f of files) {
       if (f.name === basename && f.type === type) {
+        const lastModified = dayjs(f.modifieddate, 'YYYY-MM-DDTHH:mm:ss.sss');
         return {
           filename,
           fileid: f.id,
           folderid: parentid,
           size: f.size,
-          lastModified: dayjs(f.modifieddate, 'YYYY-MM-DDTHH:mm:ss.sss')
+          lastModified,
         };
       }
     }
