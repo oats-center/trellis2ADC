@@ -1,5 +1,12 @@
 // Note: these types only verify what I need, not all
 // properties
+
+export type CreateFoldersResponse = {
+  FoldersId: string,
+};
+export type CreateFilesResponse = {
+  id: string,
+};
 export type ADCFile = {
   id: string,
   size: number,
@@ -74,4 +81,12 @@ export function assertADCAuthorize(obj: any): asserts obj is ADCAuthorize {
   if (typeof obj.apiToken !== 'string') throw new Error('Expected ADCAuthorize.apiToken to be a string');
 }
 
+export function assertCreateFilesResponse(o: any): asserts o is CreateFilesResponse {
+  if (!o || typeof o !== 'object') throw new Error('Expected CreateFilesResponse to be a truthy object');
+  if (typeof o.id !== 'string') throw new Error('Expected CreateFilesResponse.id to be a string');
+}
 
+export function assertCreateFoldersResponse(o: any): asserts o is CreateFoldersResponse {
+  if (!o || typeof o !== 'object') throw new Error('Expected CreateFoldersResponse to be a truthy object');
+  if (typeof o.FoldersId !== 'string') throw new Error('Expected CreateFoldersResponse.FoldersId to be a string');
+}

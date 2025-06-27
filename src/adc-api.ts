@@ -1,10 +1,18 @@
 import debug from 'debug';
 import type { Dayjs } from 'dayjs';
-import { assertADCFiles, assertADCFolders,assertADCRepositories, assertADCAuthorize, type ADCFolders, type ADCFiles, type ADCRepositories, type ADCAuthorize } from './adc-types.js'
+import { 
+  assertADCFiles, assertADCFolders, assertADCRepositories, assertADCAuthorize, 
+  type ADCFolders, type ADCFiles, type ADCRepositories, type ADCAuthorize, 
+  type CreateFilesResponse, assertCreateFilesResponse, 
+  type CreateFoldersResponse, assertCreateFoldersResponse
+} from './adc-types.js'
 import dayjs from 'dayjs';
 import path from 'path';
+import { fetchT } from './util.js';
 
 const info = debug('trellis2ADC/adc:info');
+
+const DATEFORMAT = 'MM/DD/YYYY HH:mm:ss';
 
 // Upsert: delete file if it's already there, then upload
 // If lastModified is passed, then the remote file as ADC 
@@ -21,7 +29,7 @@ export async function upsertDataAsFile(
   if (!folderid) throw new Error('ERROR: upsertDataAsFile: Folder does not exist for path, cannot upsert file: '+path);
   if (fileid) { // File exists.
     if (!isStale) {
-      info('File already exists, and is newer ('+adcLastModified?.toISOString()+') than Trellis copy ('+lastModified?.toISOString()+') or same size as Trellis copy.  Avoiding unnecessary upload.');
+      info('File already exists, and is newer ('+adcLastModified?.toISOString()+') than Trellis copy ('+lastModified?.toISOString()+') or same size ('+blob.size+') as Trellis copy.  Avoiding unnecessary upload.');
       return;
     }
     info('File already exists and needs re-uploaded according to lastModified and size at path:'+path+'.  Deleting it for upsert.');
@@ -63,7 +71,7 @@ export async function isRemoteFileStale({
     // This is reasonable here because our data is iot-like: i.e. once a sample exists it never 
     // changes or disappears, so same size on same day means same samples.
     } else if (found.size === (size || -1)) {
-      info('ADC File '+found.filename+' is older than Trellis, but size is the same so ADC file is not considered stale');
+      info('ADC File '+found.filename+' is older than Trellis, but size is the same ('+found.size+') so ADC file is not considered stale');
       ret.isStale = false;
     // Finally, even if the ADC file is stale, allow OADA to override the rev from _meta to 
     // control uploading old files if necessary:
@@ -131,7 +139,16 @@ export async function findFileFromPath(
       return findFileFromPath(fullpath, d.foldersid, parts.slice(1).join('/'), previouspath+'/'+thispart); // recurse to next part of path
     }
   }
-  throw new Error('findFileFromPath: failed to find path at location "'+thispart+'" from fullpath "'+fullpath+'", parentid = '+parentid+', remainingpath = '+remainingpath);
+  // This part of the path does not exist, and it is not the filename part.  Go ahead and create it:
+  try {
+    if (!thispart) throw new Error('findFileFromPath: failed to create missing path because thispart of the original path is falsey');
+    if (!parentid) throw new Error('findFileFromPath: cannot create a top-level folder in repo, but parentid was falsey at remainingpath = '+ remainingpath + ' from fullpath = ' + fullpath);
+    const newfolderid = await fetchADCCreateFolder({ name: thispart, parentid });
+    info('Successfully created folder '+thispart+' because it did not exist at '+previouspath);
+    return findFileFromPath(fullpath, newfolderid, parts.slice(1).join('/'), previouspath+'/'+thispart);
+  } catch(e: any) {
+    throw new Error('findFileFromPath: failed to find path at location "'+thispart+'" from fullpath "'+fullpath+'", parentid = '+parentid+', remainingpath = '+remainingpath);
+  }
 }
 
 export async function deleteFile({ fileid }: { fileid: string }) {
@@ -160,7 +177,7 @@ let ownerid: string = '';
 let repoid: string = '';
 let fetchopts = {
   headers: {
-   Authorization: ''
+    Authorization: ''
   },
 };
 export async function connect({username,password}: { username: string, password: string }):Promise<void> {
@@ -191,9 +208,7 @@ export async function connect({username,password}: { username: string, password:
 
 
 export async function fetchADCFilesInFolder(folderid: string): Promise<ADCFiles> {
-  const files = await (await fetch(BASEURL+'/Files/GetAccessibleFiles?userId='+ownerid+'&folderId='+folderid, fetchopts)).json();
-  assertADCFiles(files);
-  return files;
+  return fetchT<ADCFiles>(BASEURL+'/Files/GetAccessibleFiles?userId='+ownerid+'&folderId='+folderid, assertADCFiles, fetchopts);
 }
 
 // If no folderid is given, it will fetch from the repo instead of a parent folder
@@ -202,21 +217,16 @@ export async function fetchADCSubFolders(folderid?: string): Promise<ADCFolders>
   if (!folderid) { // repo level
     url = BASEURL+'/Folders/GetAccessibleFoldersInRepo?userId='+ownerid+'&repoId='+repoid;
   }
-  const folders = await (await fetch(url, fetchopts)).json();
-  assertADCFolders(folders);
-  return folders;
+  return fetchT<ADCFolders>(url, assertADCFolders, fetchopts);
 }
 
 export async function fetchADCRepositories(): Promise<ADCRepositories> {
-  const all_repos = await (await fetch(BASEURL+'/Repos/GetReposByOwnerId?ownerid='+ownerid, fetchopts)).json();
-  assertADCRepositories(all_repos);
-  return all_repos;
+  return fetchT<ADCRepositories>(BASEURL+'/Repos/GetReposByOwnerId?ownerid='+ownerid, assertADCRepositories, fetchopts);
 }
 
 export async function fetchADCAuthorize(username: string, password: string): Promise<ADCAuthorize> {
-  const auth = await (await fetch(BASEURL+'/Indentity/Login?username='+username+'&password='+password)).json(); // no opts on this one
-  assertADCAuthorize(auth);
-  return auth;
+  // No fetchopts for authorize because we don't have a token yet
+  return fetchT<ADCAuthorize>(BASEURL+'/Indentity/Login?username='+username+'&password='+password, assertADCAuthorize);
 }
 
 export async function fetchADCDeleteFile(fileid: string): Promise<boolean> {
@@ -225,18 +235,42 @@ export async function fetchADCDeleteFile(fileid: string): Promise<boolean> {
   return true;
 }
 
+export async function fetchADCCreateFolder({
+  name, parentid
+}: { name: string, parentid: string }) {
+  const url = BASEURL+'/Folders/CreateFolders?'
+    +'Name='+name
+    +'&ParentFolderId='+parentid
+    +'&ReposId='+repoid
+    +'&CreatedOn='+dayjs().format(DATEFORMAT);
+  const { FoldersId } = await fetchT<CreateFoldersResponse>(url, assertCreateFoldersResponse, {
+    ...fetchopts,
+    method: 'POST',
+  });
+  info('Successfully created folder '+name+' with id '+FoldersId);
+  return FoldersId;
+}
+
 export async function fetchADCCreateFileid({ folderid, filename, size }: { folderid: string, filename: string, size: number }): Promise<string> {
   const extension = path.extname(filename);
   const name = path.basename(filename, extension);
   const type = extension.replace('.','');
-  const result = await (await fetch(BASEURL+'/Files/CreateFiles?Name='+name+'&Size='+size+'Type='+type+'&FolderId='+folderid, {
-    ...fetchopts,
-     method: 'POST',
-  })).json();
-  if (!result || typeof result !== 'object' || !('id' in result) || typeof result.id !== 'string' || !result.id) {
-    throw new Error('ERROR: fetchADCCreateFileid: could not create file, result was not a truthy object with non-empty id key: ', result);
-  }
-  return result.id;
+  const body = JSON.stringify({
+    Name: name,
+    Size: size,
+    Type: type,
+    FolderId: folderid,
+    CreatedOn: dayjs().format(DATEFORMAT),
+  });
+
+  const { id } = await fetchT<CreateFilesResponse>(BASEURL+'/Files/CreateFiles',
+    assertCreateFilesResponse, {
+      ...fetchopts,
+      body,
+      method: 'POST',
+    }
+  );
+  return id;
 }
 
 const CHUNKSIZE = 20 * 1024 * 1024; // 20mB
@@ -245,19 +279,24 @@ export async function fetchADCUploadFileChunkToFileid({
 }: { 
   fileid: string, chunknum: number, totalChunks: number, blob: Blob
 }): Promise<void> {
+  const url = BASEURL+'/ExternalResources/UploadFileChunk/'+repoid+'/'+fileid+'/'+chunknum+'/'+totalChunks;
   // Create a FormData instance and append the blob to the form as parameter name "file"
   const form = new FormData();
   // Grab proper chunk of data:
   form.append('file', blob.slice(chunknum*CHUNKSIZE, Math.min((chunknum+1)*CHUNKSIZE, blob.size)));
-  // /ExternalResources/UploadFileChunk/{containerName}/{file_id}/{chunkNumber}/{totalChunks}
-  const CONTAINERNAME=''; // What is this supposed to be?
-  const result = await fetch(BASEURL+'/ExternalResources/UploadFileChunk/'+CONTAINERNAME+'/'+fileid+'/'+chunknum+'/'+totalChunks, {
+
+  const opts = {
     ...fetchopts,
     method: 'POST',
     body: form,
-  });
+  };
+  // containerName is repoid
+  // /ExternalResources/UploadFileChunk/{containerName}/{file_id}/{chunkNumber}/{totalChunks}
+  const result = await fetch(url, opts);
 
   if (!result.ok) {
-    throw new Error('ERROR: fetchUploadFile: could not upload file, result was not a 200 status code');
+    info('FAILED: fetchADCUploadFileChunkToFileid: status not ok.  Result code was: ', result.status, ', statusText = ', result.statusText, ', body = ', await result.text());
+    throw new Error('ERROR: fetchADCUploadFileChunkToFileid: could not upload file, result was not a 200 status code.  Code was: '+result.status);
   }
 }
+
