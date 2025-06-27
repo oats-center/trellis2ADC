@@ -53,7 +53,6 @@ await startListWatch({
   oadaPath: '/bookmarks/iot4ag/soil/water-content', 
   itemsPath: '$.day-index.*',
 });
-/*
 await startListWatch({ 
   oadaPath: '/bookmarks/iot4ag/soil/temperature', 
   itemsPath: '$.day-index.*',
@@ -67,7 +66,7 @@ await startListWatch({
   oadaPath: '/bookmarks/lab-results/soil', 
   itemsPath: '$.event-date-index.*', // ignoring the md5-index: we'll grab all of them on that day and make one csv
 });
-*/
+
 async function resetListWatch({ oadaPath }: { oadaPath: string }) {
   info('resetListWatch: RESETTING LIST WATCH FOR ', oadaPath);
   const path = oadaPath + '/_meta/oada-list-lib';
