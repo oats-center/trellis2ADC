@@ -57,6 +57,7 @@ await startListWatch({
   oadaPath: '/bookmarks/iot4ag/soil/temperature', 
   itemsPath: '$.day-index.*',
 });
+
 await startListWatch({ 
   oadaPath: '/bookmarks/iot4ag/soil/conductivity', 
   itemsPath: '$.day-index.*',

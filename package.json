@@ -1,5 +1,6 @@
 {
   "name": "trellis2ADC",
+  "version": "1.0.0",
   "type": "module",
   "packageManager": "yarn@4.4.0",
   "scripts": {
